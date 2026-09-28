@@ -1,6 +1,6 @@
 # PURPLE AI OFFICE
 
-Phase 1의 **① DB·도메인 규칙·테스트** 기반입니다. 로그인·서버 서비스·MockProvider는 ②, 대시보드·Realtime UI·데모는 ③에서 연결합니다.
+Phase 1의 **① DB·도메인 규칙·테스트와 ② 서버·MockProvider** 기반입니다. 로그인 API·업무 서비스·한 단계 Mock 실행이 연결되어 있습니다. 로그인 화면·대시보드·Realtime UI·데모 조작은 ③에서 연결합니다.
 
 ## 개발과 검증
 
@@ -45,8 +45,8 @@ pnpm db:test:local
 - test_results/artifacts도 append-only입니다. PENDING 결과의 완료나 재시험은 기존 행 수정 대신 새 증거 행을 추가합니다. 서버는 현재 검수 round와 증거 ID를 명시적으로 선택해야 합니다.
 - agent_messages는 삭제할 수 없고 queue_status, attempts, processed_at, claimed_at, lease_expires_at, available_at, run_id만 갱신할 수 있습니다.
 - WAITING_USER/UNKNOWN_OUTCOME은 Phase 1에서 CEO 취소만 허용합니다. 예산 변경·한도 재검사로 재개할 수 없으며 run 해결 정책은 Phase 2 범위입니다.
-- `agent_runs` 결과 저장 → 사용량 정산 → 응답 반영 순서의 서버 통합 테스트는 ②에서 추가합니다. ①에는 저장 무결성과 불변성만 검증합니다.
-- 앱 기본 페이지는 빌드 확인용입니다. API·인증 없는 이 단계에서 업무 DB를 읽거나 쓰지 않습니다.
+- `agent_runs` 결과 저장 → 사용량 정산 → 응답 반영은 별도 커밋으로 분리하고 통합 테스트로 검증합니다. UNKNOWN_OUTCOME run과 task의 대기 상태는 함께 커밋합니다.
+- 앱 기본 페이지는 빌드 확인용이며, 업무 API는 CEO 인증 후 DB를 읽고 씁니다. UI는 ③ 범위입니다.
 
 ## 문서
 
@@ -56,3 +56,5 @@ pnpm db:test:local
 - [Claude 권장 사항 반영표](docs/PHASE1_REVIEW_RESPONSE.md)
 - [대표 승인 화면 시안·DB 기반 애니메이션 기준](docs/design/README.md)
 - [① Work Report](docs/reports/OFFICE-001-db-domain.md)
+- [② 서버 API·실패 복구 계약](docs/SERVER_API.md)
+- [② Work Report](docs/reports/OFFICE-001-server-mock.md)

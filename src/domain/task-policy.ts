@@ -39,6 +39,13 @@ export function enforceLimits(task: TaskState): TaskState {
     pauseReason: limits.includes('BUDGET') ? 'BUDGET' : 'LIMIT',
     resumeStatus: active(task.status) ? task.status : task.resumeStatus };
 }
+/** Uncertain execution cannot be resumed, including when a budget pause races it. */
+export function unknownOutcome(task: TaskState): TaskState {
+  validateTask(task);
+  if (terminal(task.status)) return task;
+  return { ...task, status: 'WAITING_USER', pauseReason: 'UNKNOWN_OUTCOME',
+    resumeStatus: active(task.status) ? task.status : task.resumeStatus };
+}
 function reviewerPass(task: TaskState, e: TransitionEvidence): boolean {
   const r = e.review;
   return !!r && r.agentId === task.reviewerAgent && r.round === task.reviewRound && r.round > 0 &&

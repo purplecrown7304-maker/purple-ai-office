@@ -50,6 +50,11 @@ jobs:
         run: pnpm test:db
         env:
           OFFICE_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          OFFICE_TEST_DISPOSABLE: '1'
+      - name: Test real Auth cookies and HTTP workflow
+        run: node scripts/test-http.mjs
+        env:
+          OFFICE_TEST_DISPOSABLE: '1'
       - name: Test Supabase catalog grants with pgTAP
         run: pnpm db:test:local
       - name: Stop local stack
