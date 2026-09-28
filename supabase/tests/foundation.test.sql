@@ -1,0 +1,12 @@
+begin;
+create extension if not exists pgtap with schema extensions;
+set search_path = public, extensions;
+select plan(6);
+select is((select count(*)::integer from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('projects','tasks','agents','task_events','agent_messages','agent_runs','test_results','decisions','artifacts') and c.relrowsecurity),9,'RLS covers all business tables');
+select ok(not has_table_privilege('anon','public.tasks','select'),'anon cannot read tasks');
+select ok(not has_table_privilege('authenticated','public.tasks','update'),'CEO cannot bypass server policy through DML');
+select ok(not has_table_privilege('service_role','public.task_events','truncate'),'service_role cannot truncate audits');
+select ok(not has_function_privilege('authenticated','public.apply_task_transition(uuid,uuid,integer,uuid,public.task_status,text,uuid,text,integer,integer,integer,integer,text,public.task_status)','execute'),'client cannot call trusted transition RPC');
+select is((select count(*)::integer from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename in ('tasks','task_events','agents','agent_messages')),4,'Realtime includes the four required tables');
+select * from finish();
+rollback;

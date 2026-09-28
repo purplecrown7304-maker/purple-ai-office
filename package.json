@@ -1,0 +1,37 @@
+{
+  "name": "purple-ai-office",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "next typegen && tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/domain",
+    "test:db": "vitest run tests/database",
+    "db:test:local": "supabase test db",
+    "setup:ceo": "node scripts/setup-ceo.mjs"
+  },
+  "dependencies": {
+    "next": "16.3.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "postgres": "3.4.9",
+    "@types/node": "26.6.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.6",
+    "supabase": "2.118.0",
+    "typescript": "6.0.3",
+    "vitest": "5.0.2"
+  }
+}
