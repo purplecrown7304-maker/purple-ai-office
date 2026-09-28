@@ -7,6 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createClient } from '@supabase/supabase-js';
 import postgres from 'postgres';
 import { testBrowser } from '../e2e/office.mjs';
+import { readFile, readdir } from 'node:fs/promises';
 
 assert.equal(process.env.OFFICE_TEST_DISPOSABLE,'1','Explicit disposable stack flag required');
 const status=spawnSync('pnpm',['exec','supabase','status','-o','json'],{encoding:'utf8',windowsHide:true});
@@ -35,6 +36,10 @@ try {
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:config.ANON_KEY,NEXT_TELEMETRY_DISABLED:'1'};
   const build=spawnSync(process.execPath,['node_modules/next/dist/bin/next','build'],{env,stdio:'inherit',windowsHide:true});
   assert.equal(build.status,0,'Production build');
+  for(const file of await readdir('.next/static',{recursive:true})) if(file.endsWith('.js')) {
+    const source=await readFile(`.next/static/${file}`,'utf8');
+    assert.ok(!source.includes(dbUrl)&&!source.includes(config.SERVICE_ROLE_KEY),'Server credentials must not enter browser bundles');
+  }
   server=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p','3100'],{env,stdio:'ignore',windowsHide:true});
   let ready=false;
   for(let i=0;i<60;i++) {

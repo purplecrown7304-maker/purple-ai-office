@@ -68,7 +68,11 @@ export function Dashboard({
           await api<Detail>(`tasks/${task.id}/step`, {}, request.key);
           stepKey.current = null;
         } catch (e) {
-          if (
+          if (e instanceof ApiError && e.code === "TASK_NOT_RUNNABLE") {
+            // A Realtime snapshot can race a final/pause transition. Stop quietly.
+            stepKey.current = null;
+            setRunning(false);
+          } else if (
             e instanceof ApiError &&
             ["STEP_NOT_DUE", "AGENT_BUSY"].includes(e.code)
           )
@@ -131,7 +135,9 @@ export function Dashboard({
   }
   const project =
     projects.find((p) => p.id === task?.project_id) ?? projects[0];
-  const waiting = tasks.filter((t) => t.status === "WAITING_USER");
+  const waiting = tasks.filter((t) =>
+    ["WAITING_USER", "ESCALATED"].includes(t.status),
+  );
   const terminal = task && ["DONE", "CANCELLED"].includes(task.status);
   return (
     <main className="shell">
@@ -243,7 +249,12 @@ export function Dashboard({
           <strong>대표 확인이 필요한 작업 {waiting.length}개</strong>
           <div>
             {waiting.map((t) => (
-              <Link key={t.id} href={`/?task=${t.id}`}>
+              <Link
+                key={t.id}
+                href={
+                  t.id === task?.id ? "#approval" : `/?task=${t.id}#approval`
+                }
+              >
                 {t.code} · {pauseLabels[t.pause_reason ?? ""] ?? "판단 대기"}
               </Link>
             ))}
@@ -311,25 +322,32 @@ export function Dashboard({
               {task && detail && (
                 <>
                   <Progress detail={detail} />
-                  <Card>
-                    <CardHeader>
-                      <h2>예산</h2>
-                      <span>
-                        <strong>{money(task.cost_usd)}</strong> /{" "}
-                        {money(task.budget_usd)}
-                      </span>
-                    </CardHeader>
-                    <progress
-                      aria-label="사용 예산"
-                      max={Math.max(Number(task.budget_usd), 0.000001)}
-                      value={Number(task.cost_usd)}
-                    />
-                    <p className="muted">
-                      Mock 모의 비용 · 실제 AI API 요금이 발생하지 않습니다.
-                    </p>
-                  </Card>
-                  {task.status === "WAITING_USER" && (
-                    <Card className="approval-card">
+                  {task.pause_reason !== "FINAL_APPROVAL" && (
+                    <Card>
+                      <CardHeader>
+                        <h2>예산</h2>
+                        <span>
+                          <strong>{money(task.cost_usd)}</strong> /{" "}
+                          {money(task.budget_usd)}
+                        </span>
+                      </CardHeader>
+                      <progress
+                        aria-label="사용 예산"
+                        max={Math.max(Number(task.budget_usd), 0.000001)}
+                        value={Number(task.cost_usd)}
+                      />
+                      <p className="muted">
+                        Mock 모의 비용 · 실제 AI API 요금이 발생하지 않습니다.
+                      </p>
+                    </Card>
+                  )}
+                  {[
+                    "WAITING_USER",
+                    "ESCALATED",
+                    "BLOCKED",
+                    "WAITING_AGENT",
+                  ].includes(task.status) && (
+                    <Card className="approval-card" id="approval">
                       <h2>
                         {pauseLabels[task.pause_reason ?? ""] ??
                           "대표 확인이 필요해요"}
@@ -340,6 +358,10 @@ export function Dashboard({
                           : task.pause_reason === "UNKNOWN_OUTCOME"
                             ? "외부 실행 결과가 불명확하여 자동 재시도를 멈췄습니다. 실행 기록을 확인한 뒤 이 작업을 취소하고 새 작업을 만들어 주세요."
                             : "진행을 멈추고 대표의 결정을 기다립니다."}
+                      </p>
+                      <p className="muted">
+                        Mock 비용 {money(task.cost_usd)} /{" "}
+                        {money(task.budget_usd)}
                       </p>
                       <label>
                         결정 사유

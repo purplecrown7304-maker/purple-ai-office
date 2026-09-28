@@ -84,9 +84,11 @@ export function activityFor(
     task.lead_agent === agent.id
   )
     return "typing";
+  if (task.status === "DISCUSSION") return "ellipsis";
   if (
-    task.status === "ANALYZING" ||
-    (task.status === "CROSS_REVIEW" && task.reviewer_agent === agent.id)
+    ["NEW", "ANALYZING", "PLANNED"].includes(task.status) ||
+    (["CROSS_REVIEW", "TESTING"].includes(task.status) &&
+      task.reviewer_agent === agent.id)
   )
     return "scan";
   return "idle";

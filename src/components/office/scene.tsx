@@ -91,7 +91,10 @@ export function OfficeScene({
     ].includes(task.status);
   const flash = halted ? null : parcel;
   const latest = detail?.messages.filter((m) => m.from_agent).at(-1);
-  const speaker = flash ?? latest;
+  const speaker =
+    task && ["WAITING_USER", "DONE", "CANCELLED"].includes(task.status)
+      ? null
+      : (flash ?? latest);
   const names = (id: string | null) =>
     agents.find((a) => a.id === id)?.display_name ?? "대표";
   return (
@@ -150,14 +153,18 @@ export function OfficeScene({
                     ? "수정 중"
                     : "구현 중"
                   : activity === "scan"
-                    ? task?.status === "ANALYZING"
+                    ? ["NEW", "ANALYZING", "PLANNED"].includes(
+                        task?.status ?? "",
+                      )
                       ? "분석 중"
                       : "검수 중"
                     : activity === "ellipsis"
-                      ? flash?.from_agent === agent.id &&
-                        flash.type === "QUESTION"
-                        ? "질문 중"
-                        : "답변 중"
+                      ? !flash
+                        ? "대화 중"
+                        : flash.from_agent === agent.id &&
+                            flash.type === "QUESTION"
+                          ? "질문 중"
+                          : "답변 중"
                       : "대기"}
               </span>
             </div>
