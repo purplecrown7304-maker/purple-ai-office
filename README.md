@@ -1,6 +1,6 @@
 # PURPLE AI OFFICE
 
-Phase 1의 **① DB·도메인 규칙·테스트** 기반입니다. 로그인·서버 서비스·MockProvider는 ②, 대시보드·Realtime UI·데모는 ③에서 연결합니다.
+Phase 1의 **① DB·도메인 규칙·테스트와 ② 서버·MockProvider** 기반입니다. 로그인 API·업무 서비스·한 단계 Mock 실행이 연결되어 있습니다. 로그인 화면·대시보드·Realtime UI·데모 조작은 ③에서 연결합니다.
 
 ## 개발과 검증
 
@@ -24,7 +24,7 @@ pnpm exec supabase db reset --local
 pnpm db:test:local
 ```
 
-`OFFICE_TEST_DATABASE_URL`을 로컬 Supabase PostgreSQL 연결 문자열로 지정하고 `pnpm test:db`를 실행하면 같은 DB 계약 테스트를 실제 Supabase에서 수행합니다. 테스트 연결은 loopback 주소만 허용하고, 각 테스트의 CEO/다른 사용자/업무 fixture는 트랜잭션 종료 시 롤백합니다. 운영 DB를 테스트 대상으로 지정하지 마세요. GitHub Actions는 이 실제 Supabase 검증과 pgTAP 검증도 필수 job으로 실행합니다.
+`OFFICE_TEST_DATABASE_URL`을 임시 로컬 Supabase PostgreSQL 연결 문자열로, `OFFICE_TEST_DISPOSABLE=1`을 명시하고 `pnpm test:db`를 실행하면 DB 계약·서비스 통합 테스트를 실제 Supabase에서 수행합니다. 테스트 연결은 loopback만 허용합니다. ① 계약 fixture는 롤백하고, ② 서비스 suite는 독립 커밋·동시 요청을 검증하기 위해 **빈 임시 DB에서만** fixture를 초기화합니다. 기존 데이터가 있는 개발/운영 DB에서 실행하지 마세요. GitHub Actions는 실제 Supabase·pgTAP·Auth/HTTP 검증을 필수 job으로 실행합니다.
 
 ## CEO 최초 등록
 
@@ -45,8 +45,8 @@ pnpm db:test:local
 - test_results/artifacts도 append-only입니다. PENDING 결과의 완료나 재시험은 기존 행 수정 대신 새 증거 행을 추가합니다. 서버는 현재 검수 round와 증거 ID를 명시적으로 선택해야 합니다.
 - agent_messages는 삭제할 수 없고 queue_status, attempts, processed_at, claimed_at, lease_expires_at, available_at, run_id만 갱신할 수 있습니다.
 - WAITING_USER/UNKNOWN_OUTCOME은 Phase 1에서 CEO 취소만 허용합니다. 예산 변경·한도 재검사로 재개할 수 없으며 run 해결 정책은 Phase 2 범위입니다.
-- `agent_runs` 결과 저장 → 사용량 정산 → 응답 반영 순서의 서버 통합 테스트는 ②에서 추가합니다. ①에는 저장 무결성과 불변성만 검증합니다.
-- 앱 기본 페이지는 빌드 확인용입니다. API·인증 없는 이 단계에서 업무 DB를 읽거나 쓰지 않습니다.
+- `agent_runs` 결과 저장 → 사용량 정산 → 응답 반영은 별도 커밋으로 분리하고 통합 테스트로 검증합니다. UNKNOWN_OUTCOME run과 task의 대기 상태는 함께 커밋합니다.
+- 앱 기본 페이지는 빌드 확인용이며, 업무 API는 CEO 인증 후 DB를 읽고 씁니다. UI는 ③ 범위입니다.
 
 ## 문서
 
@@ -56,3 +56,5 @@ pnpm db:test:local
 - [Claude 권장 사항 반영표](docs/PHASE1_REVIEW_RESPONSE.md)
 - [대표 승인 화면 시안·DB 기반 애니메이션 기준](docs/design/README.md)
 - [① Work Report](docs/reports/OFFICE-001-db-domain.md)
+- [② 서버 API·실패 복구 계약](docs/SERVER_API.md)
+- [② Work Report](docs/reports/OFFICE-001-server-mock.md)
