@@ -1,6 +1,6 @@
 # OFFICE-001 · Phase 1 설계 검토 초안
 
-- 상태: **Claude 설계 검토 대기. 애플리케이션·마이그레이션·테스트 코드 구현 전.**
+- 상태: **Claude 설계 승인(`27f556c`) 및 사용자 착수 지시에 따라 ① 구현 진행.** 권장 사항별 반영은 [PHASE1_REVIEW_RESPONSE.md](PHASE1_REVIEW_RESPONSE.md)를 따른다.
 - 작성: GPT(Codex) / 검수: Claude / 최종 병합: CEO
 - 기준: [AI_OFFICE_SPEC.md](AI_OFFICE_SPEC.md) v1.1, [PHASE1_WORK_ORDER.md](PHASE1_WORK_ORDER.md)
 - 우선순위: 사용자의 현재 요청 → 명세 0절 개정 사항 → Phase 1 작업지시서 → 명세의 나머지 본문.
@@ -28,7 +28,7 @@ Provider는 응답·사용량·상태 변경 요청만 반환한다. 서버가 �
 | `projects` | `id, owner_id, name, repository_url, status, default_budget_usd=5.00, created_at, updated_at` | `owner_id → auth.users`; CEO만 프로젝트 생성 가능; 상태 `ACTIVE/ARCHIVED` |
 | `tasks` | `id, code, project_id, title, description, status, priority, lead_agent, reviewer_agent, acceptance_criteria, budget_usd, cost_usd=0, discussion_rounds=0, review_retries=0, fix_attempts=0, created_at, updated_at` | `code UNIQUE`; 배정 에이전트 둘 다 NOT NULL FK; **CHECK(lead_agent <> reviewer_agent)**; 수락 조건은 빈 항목 없는 문자열 배열; owner는 project를 통해 판정 |
 | `task_events` | `id, task_id, from_status, to_status, actor, reason, created_at`; 추가 `actor_user_id, actor_agent_id, task_version, request_id` | 생성 시 `NULL → NEW` 포함; 이후 실제 상태 변경당 1행; append-only; `(task_id, task_version)` 유일; 작업과 같은 소유권 |
-| `agents` | `id, owner_id, slug, display_name, provider, model, status, current_task_id, last_active_at` | `slug UNIQUE`; GPT·Claude 기본 시드; owner 직접 판정; current task는 같은 owner의 작업; 상태 `IDLE/WORKING/REVIEWING/WAITING/ERROR/OFFLINE` |
+| `agents` | `id, owner_id, slug, display_name, provider, model, status, current_task_id, last_active_at` | `UNIQUE(owner_id,slug)`; GPT·Claude 기본 시드; owner 직접 판정; current task는 같은 owner의 작업; 상태 `IDLE/WORKING/REVIEWING/WAITING/ERROR/OFFLINE` |
 | `agent_messages` | `id, task_id, from_agent, to_agent, type, message, requires_response, queue_status, attempts=0, processed_at, in_reply_to, created_at`; 추가 `from_role, to_role, run_id, payload, review_round, available_at, claimed_at, lease_expires_at, request_id` | 메시지 타입 12종; 큐 상태 4종; 답장은 같은 task의 메시지만 참조; CEO·system은 역할 열로 표현하고 agent FK는 NULL 허용; 역할과 FK의 일관성 CHECK |
 | `agent_runs` | `id, agent_id, task_id, started_at, ended_at, status, input_tokens, output_tokens, cost_usd, provider, model, error`; 추가 `message_id, idempotency_key, response_payload, applied_at, lease_expires_at` | 호출 전 행 생성, 반환 후 사용량·결과 영속화; 토큰·금액 음수 금지; 멱등 키 UNIQUE; 같은 task에 미처리 run이 있으면 다음 호출 금지 |
 | `test_results` | `id, task_id, agent_id, test_type, result, output, created_at` | 명세 24절 유지; owner는 task→project; `result=PENDING/PASS/FAIL`; 데모 결과는 `test_type=mock:*`로 명시 |
@@ -73,6 +73,7 @@ Provider는 응답·사용량·상태 변경 요청만 반환한다. 서버가 �
 | 생성 전 | `NEW` | CEO가 유효한 수락 조건·서로 다른 담당자·예산으로 생성; 초기 이벤트 저장 |
 | `NEW` | `ANALYZING` | 배정된 lead의 작업 시작 요청 |
 | `ANALYZING` | `DISCUSSION` | 분석 후 질문 또는 제안이 DB에 저장됨 |
+| `ANALYZING` | `PLANNED` | 질문이 필요 없으면 lead가 계획 decision을 기록하고 직행 가능; 데모는 DISCUSSION 유지 |
 | `DISCUSSION` | `PLANNED` | 계획·결정 기록이 저장됨 |
 | `PLANNED` | `IMPLEMENTING` | lead가 구현 시작 요청 |
 | `IMPLEMENTING` | `CROSS_REVIEW` | lead가 변경 산출물과 검토 요청 제출; review round 시작 |
@@ -267,7 +268,7 @@ e2e/
 .env.example
 README.md
 package.json
-package-lock.json
+  pnpm-lock.yaml
 ```
 
 UI는 domain 타입을 사용하고 server/providers 구현을 import하지 않는다. 서버 진입점은 서비스를 호출하는 얇은 경계로 둔다. Supabase 타입 생성은 DB/repository 계층에 두며 domain 타입을 DB SDK에 종속시키지 않는다. 패키지와 CLI 버전은 구현 시 검증 후 고정하고 lockfile을 커밋한다.
