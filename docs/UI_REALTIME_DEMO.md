@@ -39,4 +39,3 @@ HTTP 런타임 MockProvider만 호출당 650ms의 취소 가능한 모의 처리
 - CI artifact `office-ui-screenshots`: 질문/수정/승인 데스크톱과 승인 모바일.
 
 전용 Supabase/Vercel 프로젝트가 아직 없다는 대표 답변에 따라 호스팅 리소스는 생성하지 않았습니다. Vercel 미리보기 검증은 환경 연결 후 수행해야 하며 완료로 간주하지 않습니다.
-

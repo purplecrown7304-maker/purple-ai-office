@@ -1,6 +1,6 @@
 # PURPLE AI OFFICE
 
-Phase 1의 **① DB·도메인 규칙·테스트와 ② 서버·MockProvider** 기반입니다. 로그인 API·업무 서비스·한 단계 Mock 실행이 연결되어 있습니다. 로그인 화면·대시보드·Realtime UI·데모 조작은 ③에서 연결합니다.
+Phase 1의 DB·도메인·서버·MockProvider와 **③ 화면·Realtime·데모**를 구현합니다. CEO 로그인 후 프로젝트와 작업을 만들고, 실제 DB에 기록되는 에이전트 대화·검수·비용을 오피스에서 확인할 수 있습니다.
 
 ## 개발과 검증
 
@@ -13,6 +13,10 @@ pnpm lint
 pnpm test
 pnpm build
 ```
+
+`.env.example`을 참고해 전용 Supabase의 공개 URL/키, 서버 전용 DATABASE_URL, 앱 주소 APP_ORIGIN을 설정하고 아래 CEO 최초 등록을 마친 뒤 `pnpm dev`로 실행합니다. `/setup`에서 프로젝트를 등록하고 `/tasks/new`에서 작업을 생성한 다음 ‘데모 실행’을 누릅니다. 기본 간격은 2500ms이며 ‘승인하고 완료’는 작업을 DONE으로 전환합니다.
+
+CI는 임시 Supabase와 production Next 서버에서 Playwright 로그인·생성·Realtime·일시정지·승인·모바일 흐름을 실행합니다. 스크린샷은 `office-ui-screenshots` artifact에 저장합니다. 전용 Supabase/Vercel 프로젝트가 아직 없어 호스팅된 미리보기 검증은 남아 있습니다.
 
 `pnpm test`는 domain 테스트와 PGlite의 실제 PostgreSQL 엔진에서 migration/권한/트랜잭션 테스트를 실행합니다. PGlite에서는 Supabase Auth 역할·UID 함수를 테스트용으로 생성합니다. 이 검증만으로 GoTrue/PostgREST/Realtime 서비스 검증이 완료되었다고 간주하지 않습니다.
 
@@ -46,7 +50,7 @@ pnpm db:test:local
 - agent_messages는 삭제할 수 없고 queue_status, attempts, processed_at, claimed_at, lease_expires_at, available_at, run_id만 갱신할 수 있습니다.
 - WAITING_USER/UNKNOWN_OUTCOME은 Phase 1에서 CEO 취소만 허용합니다. 예산 변경·한도 재검사로 재개할 수 없으며 run 해결 정책은 Phase 2 범위입니다.
 - `agent_runs` 결과 저장 → 사용량 정산 → 응답 반영은 별도 커밋으로 분리하고 통합 테스트로 검증합니다. UNKNOWN_OUTCOME run과 task의 대기 상태는 함께 커밋합니다.
-- 앱 기본 페이지는 빌드 확인용이며, 업무 API는 CEO 인증 후 DB를 읽고 씁니다. UI는 ③ 범위입니다.
+- UI는 DB 스냅샷과 Realtime을 읽습니다. 데모 타이머는 한 step API만 요청하며 상태·대화·비용을 자체 생성하지 않습니다. ‘처음부터’는 이전 감사 기록을 보존하는 새 작업 생성입니다.
 
 ## 문서
 
@@ -58,3 +62,4 @@ pnpm db:test:local
 - [① Work Report](docs/reports/OFFICE-001-db-domain.md)
 - [② 서버 API·실패 복구 계약](docs/SERVER_API.md)
 - [② Work Report](docs/reports/OFFICE-001-server-mock.md)
+- [③ 화면·Realtime·데모 및 PR #3 권장 1~4 반영](docs/UI_REALTIME_DEMO.md)
