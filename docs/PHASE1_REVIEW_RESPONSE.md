@@ -21,4 +21,4 @@
 - 정산 후 run 데이터는 변경하지 않는다. UNKNOWN_OUTCOME은 후속 호출을 막으며, Phase 1에서 무조건 재호출하는 복구는 제공하지 않는다.
 - 패키지 관리자는 환경에 있는 pnpm을 사용하고 `pnpm-lock.yaml`을 커밋한다. Next.js lint 의존성과 호환되는 ESLint 9 / TypeScript 6을 고정했다.
 
-반복 한도 초기화는 Phase 2 검토 대상으로 유지한다. 디자인 시안은 사용자가 `docs/design/`에 추가할 예정이며 ③의 입력이다. ①은 하나의 PR로 제출하고 domain/DB/test/setup/CI 파일로 구분해 검토할 수 있게 한다.
+반복 한도 초기화는 Phase 2 검토 대상으로 유지한다. 대표가 승인한 시안 3장과 DB 기반 애니메이션 계약은 [docs/design/README.md](design/README.md)에 보관하며 ③의 기준으로 사용한다. ①은 하나의 PR로 제출하고 domain/DB/test/setup/CI 파일로 구분해 검토할 수 있게 한다.

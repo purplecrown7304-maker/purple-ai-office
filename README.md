@@ -50,4 +50,5 @@ pnpm db:test:local
 - [Phase 1 작업지시서](docs/PHASE1_WORK_ORDER.md)
 - [설계](docs/PHASE1_DESIGN.md)
 - [Claude 권장 사항 반영표](docs/PHASE1_REVIEW_RESPONSE.md)
+- [대표 승인 화면 시안·DB 기반 애니메이션 기준](docs/design/README.md)
 - [① Work Report](docs/reports/OFFICE-001-db-domain.md)

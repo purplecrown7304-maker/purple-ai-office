@@ -188,7 +188,7 @@ NEW → ANALYZING → DISCUSSION
 
 `tasks`, `task_events`, `agents`, `agent_messages`를 `supabase_realtime` publication에 등록한다. `realtime` 시스템 스키마를 수정하지 않는다. 클라이언트는 RLS가 적용되는 세션으로 구독한다. 초기 조회 → 구독 연결 → 재조회로 초기 공백을 보정하고, 재연결 시에도 재조회한다. 이벤트 ID/version으로 중복·늦은 이벤트를 처리하며 태스크 비용은 tasks 변경에서 읽는다.
 
-애니메이션·말풍선·보드 이동은 DB 스냅샷과 새 이벤트 ID에서 파생한다. 로딩/빈 화면/오류/연결 끊김 상태를 제공하고 reduced-motion을 존중한다. 1280px 이상 및 390px 뷰포트에서 확인한다. 대표가 승인한 캔버스 시안은 현재 첨부되지 않았으므로 UI PR 전에 접근 가능한 시안을 확인해야 한다.
+애니메이션·말풍선·보드 이동은 DB 스냅샷과 새 이벤트 ID에서 파생한다. 로딩/빈 화면/오류/연결 끊김 상태를 제공하고 reduced-motion을 존중한다. 1280px 이상 및 390px 뷰포트에서 확인한다. 대표가 승인한 질문·수정 요청·승인 대기 시안 3장과 들썩임/타이핑/스캔선/말줄임표/메시지 꾸러미 이동 계약은 [design/README.md](design/README.md)를 ③ 구현 기준으로 사용한다.
 
 ## 7. 폴더 구조
 
@@ -311,7 +311,7 @@ GitHub Actions는 PR마다 `typecheck`, `lint`, `unit`, `build`를 수행한다.
 6. 한 요청 한 단계 Mock 데모와 DB 기반 UI가 Phase 4 워커를 미리 구현하지 않고 요구를 충족하는가.
 7. 3개 구현 PR의 경계 및 검증 기준이 적절한가.
 
-현재 확인되지 않은 환경 의존성: Claude 검토 채널, 신규 Supabase/Vercel 프로젝트 연결, CEO Auth UID, 승인된 캔버스 시안. 실제 키·비밀번호를 문서나 PR에 붙이지 않는다.
+현재 확인되지 않은 환경 의존성: Claude 자동 검토 채널, 신규 Supabase/Vercel 프로젝트 연결, CEO Auth UID. 승인된 화면 시안은 docs/design/에 확보했다. 실제 키·비밀번호를 문서나 PR에 붙이지 않는다.
 
 레포 확인 결과 현재 main은 보호되지 않았고 CI/Claude 자동 검수 workflow도 없다. 현재 GitHub 연결 주체는 `purplecrown7304-maker`이므로, 이 문서 PR의 생성 자체가 명세 0.2절의 GPT/Claude 별도 App 분리 완료를 의미하지 않는다. 봇 신원과 required review/CI/강제 push 금지 설정은 실제 구현 작업 흐름의 준비 항목으로 남기고, Phase 1 앱의 GitHub 자동화 기능으로 확대하지 않는다. 본 작업에서 자기 승인·main 직접 갱신·병합은 수행하지 않는다.
 
