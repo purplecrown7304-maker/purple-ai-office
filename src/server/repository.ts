@@ -44,11 +44,11 @@ export async function saveState(tx: Query, t: TaskRow, next: TaskState, actor: A
 export async function receipt<T>(tx:Query,owner:string,requestId:string,command:unknown,fn:()=>Promise<T>):Promise<{value:T;replayed:boolean}> {
   const body=JSON.stringify(command);
   await tx.query('select pg_advisory_xact_lock(hashtextextended($1,0))',[`${owner}:${requestId}`]);
-  const [existing]=await tx.query<{result:T;matches:boolean}>('select result, command=$3::jsonb matches from private.command_receipts where owner_id=$1 and request_id=$2',[owner,requestId,body]);
+  const [existing]=await tx.query<{result:T;matches:boolean}>('select result, command=$3::text::jsonb matches from private.command_receipts where owner_id=$1 and request_id=$2',[owner,requestId,body]);
   if(existing) { requireThat(existing.matches,'IDEMPOTENCY_CONFLICT'); return {value:existing.result,replayed:true}; }
   // Canonical JSON on the first response too: timestamps must match a replay.
   const value=JSON.parse(JSON.stringify(await fn())) as T;
-  await tx.query('insert into private.command_receipts(owner_id,request_id,command,result) values($1,$2,$3,$4)',[owner,requestId,body,JSON.stringify(value)]);
+  await tx.query('insert into private.command_receipts(owner_id,request_id,command,result) values($1,$2,$3::text::jsonb,$4::text::jsonb)',[owner,requestId,body,JSON.stringify(value)]);
   return {value,replayed:false};
 }
 export async function loadEvidence(tx:Query,t:TaskRow):Promise<TransitionEvidence> {

@@ -24,7 +24,7 @@ pnpm exec supabase db reset --local
 pnpm db:test:local
 ```
 
-`OFFICE_TEST_DATABASE_URL`을 로컬 Supabase PostgreSQL 연결 문자열로 지정하고 `pnpm test:db`를 실행하면 같은 DB 계약 테스트를 실제 Supabase에서 수행합니다. 테스트 연결은 loopback 주소만 허용하고, 각 테스트의 CEO/다른 사용자/업무 fixture는 트랜잭션 종료 시 롤백합니다. 운영 DB를 테스트 대상으로 지정하지 마세요. GitHub Actions는 이 실제 Supabase 검증과 pgTAP 검증도 필수 job으로 실행합니다.
+`OFFICE_TEST_DATABASE_URL`을 임시 로컬 Supabase PostgreSQL 연결 문자열로, `OFFICE_TEST_DISPOSABLE=1`을 명시하고 `pnpm test:db`를 실행하면 DB 계약·서비스 통합 테스트를 실제 Supabase에서 수행합니다. 테스트 연결은 loopback만 허용합니다. ① 계약 fixture는 롤백하고, ② 서비스 suite는 독립 커밋·동시 요청을 검증하기 위해 **빈 임시 DB에서만** fixture를 초기화합니다. 기존 데이터가 있는 개발/운영 DB에서 실행하지 마세요. GitHub Actions는 실제 Supabase·pgTAP·Auth/HTTP 검증을 필수 job으로 실행합니다.
 
 ## CEO 최초 등록
 

@@ -44,7 +44,7 @@ export class OfficeService {
       const agents=await tx.query("select id from public.agents where owner_id=$1 and id in ($2,$3) and provider='mock'",[owner,v.leadAgent,v.reviewerAgent]);
       requireThat(agents.length===2,'MOCK_AGENTS_REQUIRED');
       const [t]=await tx.query<TaskRow>(`insert into public.tasks(owner_id,code,project_id,title,description,lead_agent,reviewer_agent,acceptance_criteria,priority,budget_usd,is_demo,demo_delay_ms,demo_next_step_at)
-        values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now()) returning *`,[owner,`TASK-${randomUUID()}`,v.projectId,v.title,v.description,v.leadAgent,v.reviewerAgent,JSON.stringify(v.acceptanceCriteria),v.priority,v.budgetUsd,v.isDemo,v.delayMs]);
+        values($1,$2,$3,$4,$5,$6,$7,$8::text::jsonb,$9,$10,$11,$12,now()) returning *`,[owner,`TASK-${randomUUID()}`,v.projectId,v.title,v.description,v.leadAgent,v.reviewerAgent,JSON.stringify(v.acceptanceCriteria),v.priority,v.budgetUsd,v.isDemo,v.delayMs]);
       await tx.query(`insert into public.agent_messages(owner_id,task_id,from_role,to_role,to_agent,type,message,requires_response,queue_status,request_id)
         values($1,$2,'ceo','agent',$3,'HANDOFF',$4,true,'pending',$5)`,[owner,t.id,t.lead_agent,v.title,randomUUID()]);
       return t;
@@ -155,7 +155,7 @@ export class OfficeService {
       const recentMessages=await tx.query<AgentMessage>('select * from public.agent_messages where owner_id=$1 and task_id=$2 order by created_at desc,id desc limit 20',[owner,id]);
       const snapshot:Snapshot={task:{...s,id,title:t.title,description:t.description,step:t.demo_step,actorId:agent.id,recentMessages},message};
       const [run]=await tx.query<RunRow>(`insert into public.agent_runs(owner_id,task_id,agent_id,message_id,provider,model,idempotency_key,lease_expires_at,input_payload)
-        values($1,$2,$3,$4,'mock',$5,$6,now()+interval '30 seconds',$7) returning *`,[owner,id,agent.id,message.id,agent.model,key,JSON.stringify(snapshot)]);
+        values($1,$2,$3,$4,'mock',$5,$6,now()+interval '30 seconds',$7::text::jsonb) returning *`,[owner,id,agent.id,message.id,agent.model,key,JSON.stringify(snapshot)]);
       await tx.query("update public.agent_messages set queue_status='processing',attempts=attempts+1,claimed_at=now(),lease_expires_at=now()+interval '30 seconds',run_id=$3 where task_id=$1 and id=$2",[id,message.id,run.id]);
       await tx.query("update public.agents set status=$3,current_task_id=$2,last_active_at=now() where owner_id=$1 and id=$4",[owner,id,t.status==='CROSS_REVIEW'?'REVIEWING':'WORKING',agent.id]);
       return {runId:run.id,fresh:true};
@@ -196,7 +196,7 @@ export class OfficeService {
         let t=await taskForUpdate(tx,owner,id);
         const [r]=await tx.query<RunRow>('select * from public.agent_runs where id=$1',[runId]);
         if(r.status!=='STARTED') return;
-        await tx.query(`update public.agent_runs set status='RECORDED',ended_at=now(),input_tokens=$2,output_tokens=$3,cost_usd=$4,response_payload=$5 where id=$1`,
+        await tx.query(`update public.agent_runs set status='RECORDED',ended_at=now(),input_tokens=$2,output_tokens=$3,cost_usd=$4,response_payload=$5::text::jsonb where id=$1`,
           [runId,response.usage.inputTokens,response.usage.outputTokens,String(response.usage.costUsd),JSON.stringify(response)]);
         const [ledger]=await tx.query<{cost:string}>("select coalesce(sum(cost_usd),0)::text cost from public.agent_runs where task_id=$1 and status in ('RECORDED','APPLIED')",[id]);
         t=await setCost(tx,t,usdToMicros(ledger.cost));
@@ -245,7 +245,7 @@ export class OfficeService {
       if(result.evidence?.artifact) {
         requireThat(run.agent_id===t.lead_agent && ['IMPLEMENTING','FIXING'].includes(t.status),'INVALID_ARTIFACT_ACTOR');
         const [artifact]=await tx.query<{id:string}>(`insert into public.artifacts(owner_id,task_id,agent_id,type,path,metadata)
-          values($1,$2,$3,'mock:implementation',$4,$5) returning id`,[owner,id,run.agent_id,`mock://${runId}`,JSON.stringify({round:t.review_round+1,content:result.evidence.artifact,runId})]);
+          values($1,$2,$3,'mock:implementation',$4,$5::text::jsonb) returning id`,[owner,id,run.agent_id,`mock://${runId}`,JSON.stringify({round:t.review_round+1,content:result.evidence.artifact,runId})]);
         evidence.artifactId=artifact.id;
       }
       if(result.evidence?.review) {
@@ -265,7 +265,7 @@ export class OfficeService {
         const recipient=reply.recipient==='lead'?t.lead_agent:reply.recipient==='reviewer'?t.reviewer_agent:null;
         const canRespond=reply.requiresResponse&&(ACTIVE as readonly string[]).includes(next.status);
         await tx.query(`insert into public.agent_messages(owner_id,task_id,from_role,from_agent,to_role,to_agent,type,message,requires_response,queue_status,processed_at,in_reply_to,run_id,payload,review_round,available_at,request_id)
-          values($1,$2,'agent',$3,$4,$5,$6,$7,$8,$9,case when $8 then null else now() end,$10,$11,$12,$13,now()+($14 * interval '1 millisecond'),$15)`,
+          values($1,$2,'agent',$3,$4,$5,$6,$7,$8,$9,case when $8 then null else now() end,$10,$11,$12::text::jsonb,$13,now()+($14 * interval '1 millisecond'),$15)`,
           [owner,id,run.agent_id,recipient?'agent':'ceo',recipient,reply.type,reply.message,canRespond,canRespond?'pending':'done',run.message_id,runId,
             JSON.stringify(reply.type==='REVIEW_RESULT'?evidence.review??{}:{}),next.reviewRound||null,t.demo_delay_ms,randomUUID()]);
       }
