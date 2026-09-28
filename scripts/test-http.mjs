@@ -6,6 +6,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createClient } from '@supabase/supabase-js';
 import postgres from 'postgres';
+import { testBrowser } from '../e2e/office.mjs';
 
 assert.equal(process.env.OFFICE_TEST_DISPOSABLE,'1','Explicit disposable stack flag required');
 const status=spawnSync('pnpm',['exec','supabase','status','-o','json'],{encoding:'utf8',windowsHide:true});
@@ -77,6 +78,7 @@ try {
   assert.equal((await sql`select * from public.agent_runs where task_id=${task.id} and status='APPLIED'`).length,11);
   await request('logout','POST',{});await request('tasks','GET',undefined,401);
   console.log('PASS: signup disabled, real Auth cookies, non-CEO/CSRF/forged-owner rejection, 11-step HTTP workflow, DB evidence, CEO approval and logout');
+  await testBrowser({origin,email,password,sql});
 } finally {
   if(server) {server.kill('SIGTERM');await new Promise(resolve=>{server.once('exit',resolve);setTimeout(resolve,5000).unref();});}
   await sql.end();

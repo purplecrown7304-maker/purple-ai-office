@@ -1,9 +1,12 @@
 import type { AgentProvider, ProviderResult, TaskContext } from './types';
+import { setTimeout as delay } from 'node:timers/promises';
 
 /** Deterministic mock data; no DB access, credentials or external model calls. */
 export class MockProvider implements AgentProvider {
   readonly id = 'mock';
-  async respond({ task }: { task: TaskContext }): Promise<ProviderResult> {
+  constructor(private latencyMs=0) {}
+  async respond({ task, signal }: { task: TaskContext; signal?:AbortSignal }): Promise<ProviderResult> {
+    if(this.latencyMs) await delay(this.latencyMs,undefined,{signal});
     const result: ProviderResult = { replies: [], usage: { inputTokens: 100, outputTokens: 50, costUsd: 0.05 } };
     const say = (message: string, recipient: 'lead'|'reviewer'|'ceo' = 'lead', type: ProviderResult['replies'][number]['type'] = 'STATUS') => {
       result.replies.push({ message, recipient, type, requiresResponse: recipient !== 'ceo' });

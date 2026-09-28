@@ -8,11 +8,12 @@ export interface OfficeAuth {
   login(email:string,password:string):Promise<string>;
   logout():Promise<void>;
 }
-export async function createAuth():Promise<OfficeAuth> {
+export async function createAuth(readOnly=false):Promise<OfficeAuth> {
   const url=process.env.NEXT_PUBLIC_SUPABASE_URL,key=process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if(!url||!key) throw new ServiceError('SERVER_NOT_CONFIGURED',503);
   const jar=await cookies();
   const client=createServerClient(url,key,{cookies:{getAll:()=>jar.getAll(),setAll:values=>{
+    if(readOnly) return; // Page checks are read-only; API requests persist refresh cookies.
     for(const {name,value,options} of values) jar.set(name,value,{...options,sameSite:'lax',secure:process.env.NODE_ENV==='production'});
   }}});
   return {
