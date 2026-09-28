@@ -21,6 +21,13 @@ export class OfficeService {
     uuid.parse(owner);
     return this.db.transaction(async tx=>{ await assertOwner(tx,owner); return fn(tx); });
   }
+  private async readOnly<T>(owner:string,fn:(tx:Query)=>Promise<T>):Promise<T> {
+    uuid.parse(owner);
+    return this.db.transaction(async tx=>{
+      await tx.query('set transaction isolation level repeatable read, read only');
+      await assertOwner(tx,owner);return fn(tx);
+    });
+  }
   private async command<T>(owner:string,requestId:string,command:unknown,fn:(tx:Query)=>Promise<T>):Promise<T> {
     uuid.parse(requestId);
     return this.scoped(owner,async tx=>(await receipt(tx,owner,requestId,command,()=>fn(tx))).value);
@@ -43,8 +50,10 @@ export class OfficeService {
       requireThat((await tx.query("select 1 from public.projects where owner_id=$1 and id=$2 and status='ACTIVE'",[owner,v.projectId])).length,'PROJECT_NOT_FOUND',404);
       const agents=await tx.query("select id from public.agents where owner_id=$1 and id in ($2,$3) and provider='mock'",[owner,v.leadAgent,v.reviewerAgent]);
       requireThat(agents.length===2,'MOCK_AGENTS_REQUIRED');
+      const [counter]=await tx.query<{n:number}>(`insert into private.task_counters(owner_id,project_id,next_number) values($1,$2,2)
+        on conflict(owner_id,project_id) do update set next_number=private.task_counters.next_number+1 returning next_number-1 n`,[owner,v.projectId]);
       const [t]=await tx.query<TaskRow>(`insert into public.tasks(owner_id,code,project_id,title,description,lead_agent,reviewer_agent,acceptance_criteria,priority,budget_usd,is_demo,demo_delay_ms,demo_next_step_at)
-        values($1,$2,$3,$4,$5,$6,$7,$8::text::jsonb,$9,$10,$11,$12,now()) returning *`,[owner,`TASK-${randomUUID()}`,v.projectId,v.title,v.description,v.leadAgent,v.reviewerAgent,JSON.stringify(v.acceptanceCriteria),v.priority,v.budgetUsd,v.isDemo,v.delayMs]);
+        values($1,$2,$3,$4,$5,$6,$7,$8::text::jsonb,$9,$10,$11,$12,now()) returning *`,[owner,`TASK-${String(counter.n).padStart(3,'0')}`,v.projectId,v.title,v.description,v.leadAgent,v.reviewerAgent,JSON.stringify(v.acceptanceCriteria),v.priority,v.budgetUsd,v.isDemo,v.delayMs]);
       await tx.query(`insert into public.agent_messages(owner_id,task_id,from_role,to_role,to_agent,type,message,requires_response,queue_status,request_id)
         values($1,$2,'ceo','agent',$3,'HANDOFF',$4,true,'pending',$5)`,[owner,t.id,t.lead_agent,v.title,randomUUID()]);
       return t;
@@ -53,12 +62,13 @@ export class OfficeService {
   async list(owner:string,resource:'projects'|'agents'|'tasks') {
     // Static allow-list: callers never supply SQL identifiers.
     const statements={projects:'select * from public.projects where owner_id=$1 order by created_at desc',agents:'select * from public.agents where owner_id=$1 order by slug',tasks:'select * from public.tasks where owner_id=$1 order by updated_at desc limit 200'};
-    return this.scoped(owner,tx=>tx.query(statements[resource],[owner]));
+    return this.readOnly(owner,tx=>tx.query(statements[resource],[owner]));
   }
   async detail(owner:string,id:string) {
     uuid.parse(id);
-    return this.scoped(owner,async tx=>{
-      const task=await taskForUpdate(tx,owner,id);
+    return this.readOnly(owner,async tx=>{
+      const [task]=await tx.query<TaskRow>('select * from public.tasks where owner_id=$1 and id=$2',[owner,id]);
+      requireThat(task,'TASK_NOT_FOUND',404);
       const messages=await tx.query('select * from public.agent_messages where owner_id=$1 and task_id=$2 order by created_at,id',[owner,id]);
       const events=await tx.query('select * from public.task_events where owner_id=$1 and task_id=$2 order by task_version',[owner,id]);
       const runs=await tx.query('select * from public.agent_runs where owner_id=$1 and task_id=$2 order by started_at,id',[owner,id]);
@@ -69,7 +79,7 @@ export class OfficeService {
   }
   async projectDetail(owner:string,id:string) {
     uuid.parse(id);
-    return this.scoped(owner,async tx=>{
+    return this.readOnly(owner,async tx=>{
       const [project]=await tx.query('select * from public.projects where owner_id=$1 and id=$2',[owner,id]);
       requireThat(project,'PROJECT_NOT_FOUND',404);
       const tasks=await tx.query('select * from public.tasks where owner_id=$1 and project_id=$2 order by updated_at desc',[owner,id]);
@@ -78,7 +88,7 @@ export class OfficeService {
     });
   }
   async agentDetail(owner:string,slug:string) {
-    return this.scoped(owner,async tx=>{
+    return this.readOnly(owner,async tx=>{
       const [agent]=await tx.query('select * from public.agents where owner_id=$1 and slug=$2',[owner,slug]);
       requireThat(agent,'AGENT_NOT_FOUND',404);
       const messages=await tx.query('select * from public.agent_messages where owner_id=$1 and (from_agent=$2 or to_agent=$2) order by created_at desc limit 100',[owner,agent.id]);
@@ -91,6 +101,11 @@ export class OfficeService {
     return this.command(owner,key,{op:'decision',id,v},async tx=>{
       let t=await taskForUpdate(tx,owner,id);
       requireThat(!terminal(t),'TERMINAL_TASK');
+      if(v.action==='resume' && t.pause_reason!=='UNKNOWN_OUTCOME') {
+        requireThat(usdToMicros(String(t.cost_usd))<=usdToMicros(String(t.budget_usd)),'BUDGET_STILL_EXCEEDED');
+        const limits=enforceLimits(await stateOf(tx,t));
+        requireThat(limits.pauseReason!=='LIMIT','LIMIT_STILL_EXCEEDED');
+      }
       const ceo:Actor={role:'ceo',id:owner};
       const decisionId=await decision(tx,t,`${v.action}: ${v.reason}`,'ceo');
       if(v.action==='pause'||v.action==='unpause') {
@@ -116,6 +131,12 @@ export class OfficeService {
       } else if(v.action==='revise') {
         await tx.query(`insert into public.agent_messages(owner_id,task_id,from_role,to_role,to_agent,type,message,requires_response,queue_status,request_id)
           values($1,$2,'ceo','agent',$3,'CHALLENGE',$4,true,'pending',$5)`,[owner,id,t.lead_agent,v.reason,randomUUID()]);
+      } else if(v.action==='resume' && runnable(t)) {
+        const pending=await tx.query("select 1 from public.agent_messages where task_id=$1 and queue_status in ('pending','processing')",[id]);
+        const recorded=await tx.query("select 1 from public.agent_runs where task_id=$1 and status='RECORDED'",[id]);
+        if(!pending.length&&!recorded.length) await tx.query(`insert into public.agent_messages(owner_id,task_id,from_role,to_role,to_agent,type,message,requires_response,queue_status,request_id)
+          values($1,$2,'system','agent',$3,'HANDOFF','대표 결정에 따라 현재 단계에서 재개합니다.',true,'pending',$4)`,
+          [owner,id,['CROSS_REVIEW','TESTING'].includes(t.status)?t.reviewer_agent:t.lead_agent,randomUUID()]);
       }
       return t;
     });
@@ -225,7 +246,12 @@ export class OfficeService {
       const snapshot=run.input_payload as Snapshot;
       // Any intervening workflow change invalidates old progression. Pause for a
       // CEO decision rather than applying evidence to a different review round.
-      requireThat(t.status===snapshot.task.status&&t.review_round===snapshot.task.reviewRound,'STALE_RUN_CONTEXT');
+      if(t.status!==snapshot.task.status||t.review_round!==snapshot.task.reviewRound) {
+        await decision(tx,t,`STALE_RUN_CONTEXT: ${runId}; usage retained, response discarded`,'system');
+        const current=await stateOf(tx,t);
+        t=await saveState(tx,t,transition(current,'WAITING_USER',system,{pauseReason:'DECISION'}),system,'Stored result no longer matches the task; CEO decision required');
+        await finish();return;
+      }
       let state=await stateOf(tx,t);
       const proposed={...state,messageCount:state.messageCount+result.replies.length,
         discussionRounds:state.discussionRounds+(result.replies.some(r=>r.type==='ANSWER')&&t.status==='DISCUSSION'?1:0)};

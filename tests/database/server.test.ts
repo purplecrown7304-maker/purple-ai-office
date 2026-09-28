@@ -9,6 +9,8 @@ import { MockProvider } from '../../src/providers/mock';
 import type { AgentProvider } from '../../src/providers/types';
 import { handleOfficeRequest } from '../../src/server/http';
 import type { OfficeAuth } from '../../src/server/auth';
+import { taskForUpdate, stateOf, saveState } from '../../src/server/repository';
+import { transition } from '../../src/domain/task-policy';
 
 const owner='33333333-3333-4333-8333-333333333333',other='44444444-4444-4444-8444-444444444444';
 let database:Database,admin:Query,close:()=>Promise<void>,exec:(s:string)=>Promise<unknown>;
@@ -73,6 +75,43 @@ function failQueryOnce(match:string) {
   return db;
 }
 describe('server / PostgreSQL integration',()=>{
+  it('allocates project-scoped human codes concurrently and does not consume a number on replay',async()=>{
+    const key=randomUUID(),first=await office.createTask(owner,key,input());
+    expect(first.code).toBe('TASK-001');
+    expect((await office.createTask(owner,key,input())).id).toBe(first.id);
+    const next=await Promise.all([task(),task()]);
+    expect(next.map(t=>t.code).sort()).toEqual(['TASK-002','TASK-003']);
+    const project=await office.createProject(owner,randomUUID(),{name:'Other project'});
+    expect((await office.createTask(owner,randomUUID(),{...input(),projectId:project.id})).code).toBe('TASK-001');
+  });
+  it('discards a stale RECORDED response, keeps usage and requires a CEO decision before new work',async()=>{
+    const t=await task(),key=randomUUID();let calls=0;
+    const service=new OfficeService(failQueryOnce('insert into public.agent_messages'),{id:'mock',async respond(v){calls++;return new MockProvider().respond(v);}});
+    await expect(service.step(owner,t.id,key)).rejects.toThrow('INJECTED_STORAGE_FAILURE');
+    await database.transaction(async tx=>{const current=await taskForUpdate(tx,owner,t.id),actor={role:'agent' as const,id:lead};await saveState(tx,current,transition(await stateOf(tx,current),'ANALYZING',actor),actor,'Intervening workflow change');});
+    const d=await service.step(owner,t.id,key);
+    expect(d.task).toMatchObject({status:'WAITING_USER',pause_reason:'DECISION',resume_status:'ANALYZING'});
+    expect(d.runs[0].status).toBe('APPLIED');expect(d.messages).toHaveLength(1);
+    expect(d.messages[0].queue_status).toBe('done');expect(Number(d.task.cost_usd)).toBe(.05);expect(calls).toBe(1);
+    expect((await admin.query('select * from public.decisions where task_id=$1',[t.id])).some(d=>String(d.decision).includes('STALE_RUN_CONTEXT'))).toBe(true);
+    await office.decide(owner,t.id,randomUUID(),{action:'resume',reason:'Use current state'});
+    expect((await office.step(owner,t.id,randomUUID())).task.status).toBe('DISCUSSION');
+  });
+  it('rejects an unresolved budget resume without writing a CEO decision',async()=>{
+    const t=await task('0.01');await office.step(owner,t.id,randomUUID());
+    const before=await office.detail(owner,t.id);
+    const decisions=await admin.query('select * from public.decisions where task_id=$1',[t.id]);
+    await expect(office.decide(owner,t.id,randomUUID(),{action:'resume',reason:'Not resolved'})).rejects.toThrow('BUDGET_STILL_EXCEEDED');
+    expect((await office.detail(owner,t.id)).task.version).toBe(before.task.version);
+    expect(await admin.query('select * from public.decisions where task_id=$1',[t.id])).toHaveLength(decisions.length);
+  });
+  it('reads task detail with a consistent read-only snapshot and no row locks',async()=>{
+    const t=await task(),queries:string[]=[];
+    const read=new OfficeService({transaction:fn=>database.transaction(tx=>fn({query:async<T extends object>(s:string,p?:unknown[])=>{queries.push(s);return tx.query<T>(s,p);}}))});
+    expect((await read.detail(owner,t.id)).task.id).toBe(t.id);
+    expect(queries[0]).toContain('repeatable read, read only');
+    expect(queries.some(q=>/for update|for share/i.test(q))).toBe(false);
+  });
   it('persists the complete Mock flow, round-bound evidence, costs and CEO approval',async()=>{
     const t=await task(),seen:string[]=[];
     for(let i=0;i<11;i++) {const d=await office.step(owner,t.id,randomUUID());seen.push(d.task.status);}

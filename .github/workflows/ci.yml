@@ -51,12 +51,18 @@ jobs:
         env:
           OFFICE_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
           OFFICE_TEST_DISPOSABLE: '1'
-      - name: Test real Auth cookies and HTTP workflow
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Test real Auth, HTTP, browser and Realtime workflow
         run: node scripts/test-http.mjs
         env:
           OFFICE_TEST_DISPOSABLE: '1'
       - name: Test Supabase catalog grants with pgTAP
         run: pnpm db:test:local
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: office-ui-screenshots
+          path: test-results/ui/
       - name: Stop local stack
         if: always()
         run: pnpm exec supabase stop
