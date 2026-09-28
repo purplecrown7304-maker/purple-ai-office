@@ -8,6 +8,8 @@
 
 기존 확인된 Auth 사용자를 `pnpm setup:ceo`로 등록한다. 로그인·로그아웃 API는 Supabase SSR cookie client를 사용하고 모든 업무 요청에서 `auth.getUser()`로 사용자를 검증한다. JWT/user_metadata의 CEO 주장을 신뢰하지 않는다. SSR 페이지·Proxy와 로그인 화면은 ③에서 이 API에 연결한다. API에서 갱신된 쿠키는 응답에 반영되고 모든 응답은 private/no-store다.
 
+로컬 `[auth].enable_signup=false`는 유지하고 `[auth.email].enable_signup=true`로 기존 사용자의 이메일 로그인을 켠다. CLI의 이메일 옵션은 [GOTRUE_EXTERNAL_EMAIL_ENABLED로 매핑](https://github.com/supabase/cli/blob/main/apps/cli/src/commands/start/services/gotrue.service.ts)되어 false이면 로그인까지 비활성화한다. CI는 실제 신규 가입이 `signup_disabled`로 거부되는 것도 확인한다.
+
 쓰기 요청은 `POST`, `Content-Type: application/json`, `Origin: APP_ORIGIN`, `Idempotency-Key: UUID`가 필요하다. 로그인·로그아웃만 멱등 키를 요구하지 않는다. body는 64 KiB 제한이며 알 수 없는 필드(actor, owner, 임의 증거 포함)를 거부한다. 업무 명령의 키는 owner 전체에서 유일하고, 같은 키·다른 명령은 409다. SQL/Provider 오류 원문·비밀은 응답에 포함하지 않는다.
 
 ## API

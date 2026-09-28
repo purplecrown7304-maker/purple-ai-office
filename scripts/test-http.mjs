@@ -26,6 +26,9 @@ try {
   assert.equal(error,null,'Create isolated CEO user');
   const other=await auth.auth.admin.createUser({email:otherEmail,password,email_confirm:true});
   assert.equal(other.error,null,'Create isolated non-CEO user');
+  const publicAuth=createClient(api,config.ANON_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
+  const signup=await publicAuth.auth.signUp({email:`blocked-${randomUUID()}@example.invalid`,password});
+  assert.equal(signup.error?.code,'signup_disabled','Self-service signup must remain disabled');
   await sql`insert into private.office_settings(ceo_user_id) values(${data.user.id})`;
   const env={...process.env,DATABASE_URL:dbUrl,APP_ORIGIN:origin,NEXT_PUBLIC_SUPABASE_URL:api,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:config.ANON_KEY,NEXT_TELEMETRY_DISABLED:'1'};
@@ -73,7 +76,7 @@ try {
   assert.equal(stored.status,'DONE');assert.equal(Number(stored.cost_usd),0.55);
   assert.equal((await sql`select * from public.agent_runs where task_id=${task.id} and status='APPLIED'`).length,11);
   await request('logout','POST',{});await request('tasks','GET',undefined,401);
-  console.log('PASS: real Auth cookies, non-CEO/CSRF/forged-owner rejection, 11-step HTTP workflow, DB evidence, CEO approval and logout');
+  console.log('PASS: signup disabled, real Auth cookies, non-CEO/CSRF/forged-owner rejection, 11-step HTTP workflow, DB evidence, CEO approval and logout');
 } finally {
   if(server) {server.kill('SIGTERM');await new Promise(resolve=>{server.once('exit',resolve);setTimeout(resolve,5000).unref();});}
   await sql.end();
