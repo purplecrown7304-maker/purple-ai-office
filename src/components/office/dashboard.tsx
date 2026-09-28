@@ -158,7 +158,7 @@ export function Dashboard({
           <span className="demo-badge">
             <i />{" "}
             {task
-              ? `Mock · ${task.demo_step}/11 ${statusLabels[task.status]}`
+              ? `Mock · ${task.demo_step}단계 ${statusLabels[task.status]}`
               : "Mock 데모"}
           </span>
           {task && !terminal && (
