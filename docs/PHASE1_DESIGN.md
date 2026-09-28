@@ -1,6 +1,6 @@
 # OFFICE-001 · Phase 1 설계 검토 초안
 
-- 상태: **Claude 설계 검토 대기. 애플리케이션·마이그레이션·테스트 코드 구현 전.**
+- 상태: **Claude 설계 승인(`27f556c`) 및 사용자 착수 지시에 따라 ① 구현 진행.** 권장 사항별 반영은 [PHASE1_REVIEW_RESPONSE.md](PHASE1_REVIEW_RESPONSE.md)를 따른다.
 - 작성: GPT(Codex) / 검수: Claude / 최종 병합: CEO
 - 기준: [AI_OFFICE_SPEC.md](AI_OFFICE_SPEC.md) v1.1, [PHASE1_WORK_ORDER.md](PHASE1_WORK_ORDER.md)
 - 우선순위: 사용자의 현재 요청 → 명세 0절 개정 사항 → Phase 1 작업지시서 → 명세의 나머지 본문.
@@ -28,7 +28,7 @@ Provider는 응답·사용량·상태 변경 요청만 반환한다. 서버가 �
 | `projects` | `id, owner_id, name, repository_url, status, default_budget_usd=5.00, created_at, updated_at` | `owner_id → auth.users`; CEO만 프로젝트 생성 가능; 상태 `ACTIVE/ARCHIVED` |
 | `tasks` | `id, code, project_id, title, description, status, priority, lead_agent, reviewer_agent, acceptance_criteria, budget_usd, cost_usd=0, discussion_rounds=0, review_retries=0, fix_attempts=0, created_at, updated_at` | `code UNIQUE`; 배정 에이전트 둘 다 NOT NULL FK; **CHECK(lead_agent <> reviewer_agent)**; 수락 조건은 빈 항목 없는 문자열 배열; owner는 project를 통해 판정 |
 | `task_events` | `id, task_id, from_status, to_status, actor, reason, created_at`; 추가 `actor_user_id, actor_agent_id, task_version, request_id` | 생성 시 `NULL → NEW` 포함; 이후 실제 상태 변경당 1행; append-only; `(task_id, task_version)` 유일; 작업과 같은 소유권 |
-| `agents` | `id, owner_id, slug, display_name, provider, model, status, current_task_id, last_active_at` | `slug UNIQUE`; GPT·Claude 기본 시드; owner 직접 판정; current task는 같은 owner의 작업; 상태 `IDLE/WORKING/REVIEWING/WAITING/ERROR/OFFLINE` |
+| `agents` | `id, owner_id, slug, display_name, provider, model, status, current_task_id, last_active_at` | `UNIQUE(owner_id,slug)`; GPT·Claude 기본 시드; owner 직접 판정; current task는 같은 owner의 작업; 상태 `IDLE/WORKING/REVIEWING/WAITING/ERROR/OFFLINE` |
 | `agent_messages` | `id, task_id, from_agent, to_agent, type, message, requires_response, queue_status, attempts=0, processed_at, in_reply_to, created_at`; 추가 `from_role, to_role, run_id, payload, review_round, available_at, claimed_at, lease_expires_at, request_id` | 메시지 타입 12종; 큐 상태 4종; 답장은 같은 task의 메시지만 참조; CEO·system은 역할 열로 표현하고 agent FK는 NULL 허용; 역할과 FK의 일관성 CHECK |
 | `agent_runs` | `id, agent_id, task_id, started_at, ended_at, status, input_tokens, output_tokens, cost_usd, provider, model, error`; 추가 `message_id, idempotency_key, response_payload, applied_at, lease_expires_at` | 호출 전 행 생성, 반환 후 사용량·결과 영속화; 토큰·금액 음수 금지; 멱등 키 UNIQUE; 같은 task에 미처리 run이 있으면 다음 호출 금지 |
 | `test_results` | `id, task_id, agent_id, test_type, result, output, created_at` | 명세 24절 유지; owner는 task→project; `result=PENDING/PASS/FAIL`; 데모 결과는 `test_type=mock:*`로 명시 |
@@ -73,6 +73,7 @@ Provider는 응답·사용량·상태 변경 요청만 반환한다. 서버가 �
 | 생성 전 | `NEW` | CEO가 유효한 수락 조건·서로 다른 담당자·예산으로 생성; 초기 이벤트 저장 |
 | `NEW` | `ANALYZING` | 배정된 lead의 작업 시작 요청 |
 | `ANALYZING` | `DISCUSSION` | 분석 후 질문 또는 제안이 DB에 저장됨 |
+| `ANALYZING` | `PLANNED` | 질문이 필요 없으면 lead가 계획 decision을 기록하고 직행 가능; 데모는 DISCUSSION 유지 |
 | `DISCUSSION` | `PLANNED` | 계획·결정 기록이 저장됨 |
 | `PLANNED` | `IMPLEMENTING` | lead가 구현 시작 요청 |
 | `IMPLEMENTING` | `CROSS_REVIEW` | lead가 변경 산출물과 검토 요청 제출; review round 시작 |
@@ -100,7 +101,7 @@ Provider는 응답·사용량·상태 변경 요청만 반환한다. 서버가 �
 | `BLOCKED`, `WAITING_AGENT` | 보관된 `resume_status ∈ A` | 장애 해소/정상 응답을 서버가 검증하고 한도 재검사 |
 | `BLOCKED`, `WAITING_AGENT` | `WAITING_USER`, `ESCALATED` | 비용·반복 한도 또는 사용자 결정 필요 사유가 확인됨 |
 | `ESCALATED` | `WAITING_USER` | CEO가 사안을 인수하고 결정 대기로 전환; 원래 복귀 상태 유지 |
-| `WAITING_USER` | 보관된 `resume_status ∈ A` | `FINAL_APPROVAL` 이외의 대기; CEO 결정으로 원인이 해소된 경우만 허용 |
+| `WAITING_USER` | 보관된 `resume_status ∈ A` | `FINAL_APPROVAL`, `UNKNOWN_OUTCOME` 이외의 대기; CEO 결정으로 원인이 해소된 경우만 허용 |
 | `DONE/CANCELLED` 이외 전부 | `CANCELLED` | CEO 취소; 미처리 큐와 신규 호출 정지, 이미 실행된 호출의 비용은 보존 |
 
 대기에서 임의의 다른 정상 상태로 건너뛰는 것을 금지한다. 반복 횟수 초과는 Phase 1에서 상향·리셋하지 않는다. 해당 작업은 취소 후 후속 작업을 생성한다. 예산 초과는 CEO가 현재 비용 이상으로 작업 예산을 늘리고 decision을 남기면 복귀 가능하다. 반복 초과까지 함께 존재하면 예산만 올려서 복귀할 수 없다.
@@ -155,6 +156,10 @@ run의 결과 저장이 완료되기 전에는 응답 메시지·정상 진행 �
 
 Provider 오류는 run과 큐에 기록한다. 응답 유실로 비용·성공 여부를 알 수 없으면 `UNKNOWN_OUTCOME`으로 남기고 `WAITING_USER`로 중단한다. 오류를 성공·비용 0으로 꾸미지 않는다. 임대 만료는 상태 확인 기회이며, 외부 호출을 무조건 재실행하는 근거가 아니다.
 
+Phase 1의 `WAITING_USER/UNKNOWN_OUTCOME`은 CEO의 `CANCELLED` 전이만 허용한다. 한도 재검사가 이 사유를 BUDGET/LIMIT로 덮어쓰지 않는다. 해결되지 않은 run의 유일성 제약과 불변성은 유지하며, 별도 run resolution은 Phase 2에서 설계한다.
+
+PR #2 검수로 확정한 DB 증거 계약: 작업 생성 후 `lead_agent`, `reviewer_agent`, `acceptance_criteria`, `code`, `is_demo`는 고정한다. 변경은 취소 후 새 작업 생성으로 처리한다. `test_results`와 `artifacts`는 append-only이고 PENDING 완료·재시험도 새 행으로 기록한다. 서버는 현재 검수 round의 증거 ID를 선택한다. 메시지는 삭제 금지이며 `queue_status`, `attempts`, `processed_at`, `claimed_at`, `lease_expires_at`, `available_at`, `run_id`만 수정 가능하다.
+
 큐 전이: `pending → processing → done/failed`. 서버가 claim 시 `attempts`를 증가시키고 lease를 기록한다. `failed → pending`은 원인 해소 및 멱등성 확인 후 명시적 재시도만 허용한다. Phase 1은 이 계약과 Mock 한 단계 처리기만 구현하며 pgmq/cron/별도 워커는 선정하지 않는다.
 
 ## 6. 데모·Realtime·화면
@@ -187,7 +192,7 @@ NEW → ANALYZING → DISCUSSION
 
 `tasks`, `task_events`, `agents`, `agent_messages`를 `supabase_realtime` publication에 등록한다. `realtime` 시스템 스키마를 수정하지 않는다. 클라이언트는 RLS가 적용되는 세션으로 구독한다. 초기 조회 → 구독 연결 → 재조회로 초기 공백을 보정하고, 재연결 시에도 재조회한다. 이벤트 ID/version으로 중복·늦은 이벤트를 처리하며 태스크 비용은 tasks 변경에서 읽는다.
 
-애니메이션·말풍선·보드 이동은 DB 스냅샷과 새 이벤트 ID에서 파생한다. 로딩/빈 화면/오류/연결 끊김 상태를 제공하고 reduced-motion을 존중한다. 1280px 이상 및 390px 뷰포트에서 확인한다. 대표가 승인한 캔버스 시안은 현재 첨부되지 않았으므로 UI PR 전에 접근 가능한 시안을 확인해야 한다.
+애니메이션·말풍선·보드 이동은 DB 스냅샷과 새 이벤트 ID에서 파생한다. 로딩/빈 화면/오류/연결 끊김 상태를 제공하고 reduced-motion을 존중한다. 1280px 이상 및 390px 뷰포트에서 확인한다. 대표가 승인한 질문·수정 요청·승인 대기 시안 3장과 들썩임/타이핑/스캔선/말줄임표/메시지 꾸러미 이동 계약은 [design/README.md](design/README.md)를 ③ 구현 기준으로 사용한다.
 
 ## 7. 폴더 구조
 
@@ -267,7 +272,7 @@ e2e/
 .env.example
 README.md
 package.json
-package-lock.json
+  pnpm-lock.yaml
 ```
 
 UI는 domain 타입을 사용하고 server/providers 구현을 import하지 않는다. 서버 진입점은 서비스를 호출하는 얇은 경계로 둔다. Supabase 타입 생성은 DB/repository 계층에 두며 domain 타입을 DB SDK에 종속시키지 않는다. 패키지와 CLI 버전은 구현 시 검증 후 고정하고 lockfile을 커밋한다.
@@ -310,7 +315,7 @@ GitHub Actions는 PR마다 `typecheck`, `lint`, `unit`, `build`를 수행한다.
 6. 한 요청 한 단계 Mock 데모와 DB 기반 UI가 Phase 4 워커를 미리 구현하지 않고 요구를 충족하는가.
 7. 3개 구현 PR의 경계 및 검증 기준이 적절한가.
 
-현재 확인되지 않은 환경 의존성: Claude 검토 채널, 신규 Supabase/Vercel 프로젝트 연결, CEO Auth UID, 승인된 캔버스 시안. 실제 키·비밀번호를 문서나 PR에 붙이지 않는다.
+현재 확인되지 않은 환경 의존성: Claude 자동 검토 채널, 신규 Supabase/Vercel 프로젝트 연결, CEO Auth UID. 승인된 화면 시안은 docs/design/에 확보했다. 실제 키·비밀번호를 문서나 PR에 붙이지 않는다.
 
 레포 확인 결과 현재 main은 보호되지 않았고 CI/Claude 자동 검수 workflow도 없다. 현재 GitHub 연결 주체는 `purplecrown7304-maker`이므로, 이 문서 PR의 생성 자체가 명세 0.2절의 GPT/Claude 별도 App 분리 완료를 의미하지 않는다. 봇 신원과 required review/CI/강제 push 금지 설정은 실제 구현 작업 흐름의 준비 항목으로 남기고, Phase 1 앱의 GitHub 자동화 기능으로 확대하지 않는다. 본 작업에서 자기 승인·main 직접 갱신·병합은 수행하지 않는다.
 

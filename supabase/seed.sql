@@ -1,0 +1,3 @@
+-- Deliberately no production CEO UID or credentials.
+-- Run pnpm setup:ceo with an existing confirmed Auth user for a real environment.
+-- Isolated test identities live in tests/database/fixture.sql and roll back after tests.
