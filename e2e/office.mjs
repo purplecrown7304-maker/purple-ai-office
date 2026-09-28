@@ -126,7 +126,8 @@ export async function testBrowser({ origin, email, password, sql }) {
     await expect(
       observer.getByRole("heading", { name: "승인이 필요해요" }),
     ).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    // Next's route announcer also has role=alert, outside the application main.
+    await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
     await expect(page.locator(".speech")).toHaveCount(0);
     await page.screenshot({
       path: "test-results/ui/03-approval-desktop.png",
