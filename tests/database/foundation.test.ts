@@ -90,10 +90,31 @@ describe('database contracts',()=>{
   });
   it('validates different agents, nonempty criteria and cross-owner references in DB',async()=>{
     await asRole('service_role');
-    await rejects(`update public.tasks set reviewer_agent=lead_agent,version=version+1 where id='${task}'`,/check constraint/);
-    await rejects(`update public.tasks set acceptance_criteria='[""]',version=version+1 where id='${task}'`,/check constraint/);
-    await rejects(`update public.tasks set lead_agent='20000000-0000-4000-8000-000000000002',version=version+1 where id='${task}'`,/foreign key/);
+    const insert=`insert into public.tasks(owner_id,code,project_id,title,lead_agent,reviewer_agent,acceptance_criteria)`;
+    await rejects(`${insert} select owner_id,'INVALID',project_id,title,lead_agent,lead_agent,acceptance_criteria from public.tasks where id='${task}'`,/check constraint/);
+    await rejects(`${insert} select owner_id,'INVALID',project_id,title,lead_agent,reviewer_agent,'[""]' from public.tasks where id='${task}'`,/check constraint/);
+    await rejects(`${insert} select owner_id,'INVALID',project_id,title,'20000000-0000-4000-8000-000000000002',reviewer_agent,acceptance_criteria from public.tasks where id='${task}'`,/foreign key/);
     await rejects(`update public.tasks set budget_usd='NaN',version=version+1 where id='${task}'`,/check constraint/);
+  });
+  it('rejects swapping implementer/reviewer during review without changing the task',async()=>{
+    await asRole('service_role');
+    await exec(rpc({status:'CROSS_REVIEW'}));
+    await rejects(`update public.tasks set lead_agent=reviewer_agent,reviewer_agent=lead_agent,version=version+1 where id='${task}'`,/TASK_DEFINITION_IMMUTABLE/);
+    expect(await query(`select lead_agent,reviewer_agent,version from public.tasks where id='${task}'`)).toEqual([{lead_agent:agent,reviewer_agent:'10000000-0000-4000-8000-000000000003',version:1}]);
+  });
+  it('rejects weakening acceptance criteria after insertion',async()=>{
+    await asRole('service_role');
+    await rejects(`update public.tasks set acceptance_criteria='["Weaker"]',version=version+1 where id='${task}'`,/TASK_DEFINITION_IMMUTABLE/);
+    expect(await query(`select acceptance_criteria,version from public.tasks where id='${task}'`)).toEqual([{acceptance_criteria:['Works'],version:0}]);
+  });
+  it.each(["code='RENAMED'","is_demo=true"])('freezes task identity: %s',async change=>{
+    await asRole('service_role');
+    await rejects(`update public.tasks set ${change},version=version+1 where id='${task}'`,/TASK_DEFINITION_IMMUTABLE/);
+  });
+  it('allows operational task updates without altering its definition',async()=>{
+    await asRole('service_role');
+    await exec(`update public.tasks set title='Clarified title',budget_usd=6,acceptance_criteria=acceptance_criteria,version=version+1 where id='${task}'`);
+    expect(await query(`select title,version from public.tasks where id='${task}'`)).toEqual([{title:'Clarified title',version:1}]);
   });
   it('enforces owner-local slugs rather than global uniqueness',async()=>{
     expect((await query(`select * from public.agents where slug='gpt'`)).length).toBe(2);
@@ -101,7 +122,8 @@ describe('database contracts',()=>{
   });
   it('rejects cross-task reply and run references',async()=>{
     await asRole('service_role');
-    await rejects(`update public.agent_messages set task_id='10000000-0000-4000-8000-000000000005'`,/foreign key/);
+    await rejects(`insert into public.agent_messages(owner_id,task_id,from_agent,to_agent,from_role,to_role,type,message,requires_response,queue_status,request_id,in_reply_to)
+      select owner_id,'10000000-0000-4000-8000-000000000005',from_agent,to_agent,from_role,to_role,type,message,true,'pending',gen_random_uuid(),id from public.agent_messages`,/foreign key/);
     await rejects(`update public.agent_runs set task_id='10000000-0000-4000-8000-000000000005'`,/foreign key/);
   });
   it('atomically records a transition, retries idempotently and rejects stale versions',async()=>{
@@ -131,6 +153,38 @@ describe('database contracts',()=>{
     await rejects(`update public.${table} set reason='tamper'`,/AUDIT_IMMUTABLE/);
     await rejects(`delete from public.${table}`,/AUDIT_IMMUTABLE/);
     await rejects(`truncate public.${table}`,/permission denied/);
+  });
+  it.each([['test_results',"result='FAIL'"],['artifacts',"path='tampered.md'"]])('keeps completion evidence append-only: %s',async(table,change)=>{
+    await asRole('service_role');
+    await rejects(`update public.${table} set ${change}`,/AUDIT_IMMUTABLE/);
+    await rejects(`delete from public.${table}`,/AUDIT_IMMUTABLE/);
+    await rejects(`truncate public.${table}`,/permission denied/);
+    expect(await query(`select * from public.${table}`)).toHaveLength(1);
+  });
+  it.each([
+    "message='tampered'", "payload='{\"verdict\":\"PASS\"}'", "type='ANSWER'", "review_round=2",
+    "from_agent=to_agent", "to_agent=from_agent", "requires_response=false,queue_status='done',processed_at=now()",
+    "request_id=gen_random_uuid()", "created_at=now()+interval '1 day'",
+  ])('freezes message evidence: %s',async change=>{
+    await asRole('service_role');
+    await rejects(`update public.agent_messages set ${change}`,/MESSAGE_CONTENT_IMMUTABLE/);
+  });
+  it('rejects message deletion and truncation',async()=>{
+    await asRole('service_role');
+    await rejects('delete from public.agent_messages',/MESSAGE_DELETE_FORBIDDEN/);
+    await rejects('truncate public.agent_messages',/permission denied/);
+  });
+  it('allows only queue processing fields to change, preserving message identity/content',async()=>{
+    await asRole('service_role');
+    const before=(await query('select * from public.agent_messages'))[0];
+    await exec(`update public.agent_messages set queue_status='processing',attempts=attempts+1,
+      claimed_at=now(),lease_expires_at=now()+interval '1 minute',available_at=now()+interval '1 second',
+      run_id='10000000-0000-4000-8000-000000000008'`);
+    await exec(`update public.agent_messages set queue_status='done',processed_at=now(),lease_expires_at=null`);
+    const after=(await query('select * from public.agent_messages'))[0];
+    expect(after).toMatchObject({queue_status:'done',attempts:1,run_id:'10000000-0000-4000-8000-000000000008'});
+    expect(after.processed_at).not.toBeNull();
+    for(const key of Object.keys(before).filter(k=>!['queue_status','attempts','processed_at','claimed_at','lease_expires_at','available_at','run_id'].includes(k))) expect(after[key]).toEqual(before[key]);
   });
   it('freezes recorded financial evidence and freezes the whole settled run',async()=>{
     await asRole('service_role');

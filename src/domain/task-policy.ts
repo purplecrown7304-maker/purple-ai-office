@@ -11,6 +11,7 @@ export const NORMAL_TRANSITIONS: Readonly<Record<TaskStatus, readonly TaskStatus
 };
 const active = (s: TaskStatus) => (ACTIVE as readonly TaskStatus[]).includes(s);
 const terminal = (s: TaskStatus) => s === 'DONE' || s === 'CANCELLED';
+const unresolvedOutcome = (task: TaskState) => task.status === 'WAITING_USER' && task.pauseReason === 'UNKNOWN_OUTCOME';
 function requireCondition(condition: unknown, code: string): asserts condition {
   if (!condition) throw new Error(code);
 }
@@ -32,7 +33,8 @@ export function exceededLimits(task: TaskState): string[] {
 }
 export function enforceLimits(task: TaskState): TaskState {
   const limits = exceededLimits(task);
-  if (terminal(task.status) || limits.length === 0) return task;
+  // Keep this non-resumable reason: rewriting it as BUDGET/LIMIT would reopen resume.
+  if (terminal(task.status) || unresolvedOutcome(task) || limits.length === 0) return task;
   return { ...task, status: limits.includes('BUDGET') ? 'WAITING_USER' : 'ESCALATED',
     pauseReason: limits.includes('BUDGET') ? 'BUDGET' : 'LIMIT',
     resumeStatus: active(task.status) ? task.status : task.resumeStatus };
@@ -61,6 +63,9 @@ export function transition(task: TaskState, to: TaskStatus, actor: Actor, e: Tra
     requireCondition(ceo, 'CEO_REQUIRED');
     return { ...task, status: to, pauseReason: null, resumeStatus: null };
   }
+  // UNKNOWN_OUTCOME runs remain immutable/unsettled in Phase 1. A CEO decision
+  // cannot clear their unique-index slot; cancel and create a new task instead.
+  requireCondition(!unresolvedOutcome(task), 'UNKNOWN_OUTCOME_CANCEL_ONLY');
   if (task.status === 'ESCALATED' && to === 'WAITING_USER') {
     requireCondition(ceo && e.ceoDecisionId, 'CEO_DECISION_REQUIRED');
     return { ...task, status: to, pauseReason: task.costMicros > task.budgetMicros ? 'BUDGET' : 'LIMIT' };

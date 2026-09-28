@@ -98,7 +98,18 @@ describe('workflow policy', () => {
   it('can pause uncertain test execution without pretending final approval is ready', () => {
     const t=transition(task({status:'TESTING'}),'WAITING_USER',system,{pauseReason:'UNKNOWN_OUTCOME'});
     expect(t.pauseReason).toBe('UNKNOWN_OUTCOME');
-    expect(() => transition(t,'DONE',ceo,evidence(0))).toThrow('INVALID_RESUME');
+    expect(() => transition(t,'DONE',ceo,evidence(0))).toThrow('UNKNOWN_OUTCOME_CANCEL_ONLY');
+  });
+  it('allows only CEO cancellation for UNKNOWN_OUTCOME, even with a CEO decision', () => {
+    const t=task({status:'WAITING_USER',pauseReason:'UNKNOWN_OUTCOME',resumeStatus:'IMPLEMENTING'});
+    for(const next of TASK_STATUSES.filter(s=>s!=='WAITING_USER' && s!=='CANCELLED')) {
+      expect(() => transition(t,next,ceo,evidence(0))).toThrow('UNKNOWN_OUTCOME_CANCEL_ONLY');
+    }
+    expect(() => transition(t,'CANCELLED',lead)).toThrow('CEO_REQUIRED');
+    expect(transition(t,'CANCELLED',ceo)).toMatchObject({status:'CANCELLED',pauseReason:null,resumeStatus:null});
+    const overBudget={...t,costMicros:6_000_000,fixAttempts:4};
+    expect(enforceLimits(overBudget)).toEqual(overBudget);
+    expect(() => transition(overBudget,'IMPLEMENTING',ceo,evidence(0))).toThrow('UNKNOWN_OUTCOME_CANCEL_ONLY');
   });
 });
 describe('fixed-point USD', () => {

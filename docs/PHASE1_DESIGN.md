@@ -101,7 +101,7 @@ Provider는 응답·사용량·상태 변경 요청만 반환한다. 서버가 �
 | `BLOCKED`, `WAITING_AGENT` | 보관된 `resume_status ∈ A` | 장애 해소/정상 응답을 서버가 검증하고 한도 재검사 |
 | `BLOCKED`, `WAITING_AGENT` | `WAITING_USER`, `ESCALATED` | 비용·반복 한도 또는 사용자 결정 필요 사유가 확인됨 |
 | `ESCALATED` | `WAITING_USER` | CEO가 사안을 인수하고 결정 대기로 전환; 원래 복귀 상태 유지 |
-| `WAITING_USER` | 보관된 `resume_status ∈ A` | `FINAL_APPROVAL` 이외의 대기; CEO 결정으로 원인이 해소된 경우만 허용 |
+| `WAITING_USER` | 보관된 `resume_status ∈ A` | `FINAL_APPROVAL`, `UNKNOWN_OUTCOME` 이외의 대기; CEO 결정으로 원인이 해소된 경우만 허용 |
 | `DONE/CANCELLED` 이외 전부 | `CANCELLED` | CEO 취소; 미처리 큐와 신규 호출 정지, 이미 실행된 호출의 비용은 보존 |
 
 대기에서 임의의 다른 정상 상태로 건너뛰는 것을 금지한다. 반복 횟수 초과는 Phase 1에서 상향·리셋하지 않는다. 해당 작업은 취소 후 후속 작업을 생성한다. 예산 초과는 CEO가 현재 비용 이상으로 작업 예산을 늘리고 decision을 남기면 복귀 가능하다. 반복 초과까지 함께 존재하면 예산만 올려서 복귀할 수 없다.
@@ -155,6 +155,10 @@ CEO 확인용 `private.is_ceo()`만 제한된 읽기 전용 SECURITY DEFINER 헬
 run의 결과 저장이 완료되기 전에는 응답 메시지·정상 진행 전이를 만들지 않는다. 다음 호출은 이전 run이 정산·반영 또는 안전하게 종결되었을 때만 허용한다. 호출 중 CEO 취소/예산 변경이 발생하면 사용량은 기록하되 취소 상태를 되돌리거나 후속 작업을 자동 진행하지 않는다.
 
 Provider 오류는 run과 큐에 기록한다. 응답 유실로 비용·성공 여부를 알 수 없으면 `UNKNOWN_OUTCOME`으로 남기고 `WAITING_USER`로 중단한다. 오류를 성공·비용 0으로 꾸미지 않는다. 임대 만료는 상태 확인 기회이며, 외부 호출을 무조건 재실행하는 근거가 아니다.
+
+Phase 1의 `WAITING_USER/UNKNOWN_OUTCOME`은 CEO의 `CANCELLED` 전이만 허용한다. 한도 재검사가 이 사유를 BUDGET/LIMIT로 덮어쓰지 않는다. 해결되지 않은 run의 유일성 제약과 불변성은 유지하며, 별도 run resolution은 Phase 2에서 설계한다.
+
+PR #2 검수로 확정한 DB 증거 계약: 작업 생성 후 `lead_agent`, `reviewer_agent`, `acceptance_criteria`, `code`, `is_demo`는 고정한다. 변경은 취소 후 새 작업 생성으로 처리한다. `test_results`와 `artifacts`는 append-only이고 PENDING 완료·재시험도 새 행으로 기록한다. 서버는 현재 검수 round의 증거 ID를 선택한다. 메시지는 삭제 금지이며 `queue_status`, `attempts`, `processed_at`, `claimed_at`, `lease_expires_at`, `available_at`, `run_id`만 수정 가능하다.
 
 큐 전이: `pending → processing → done/failed`. 서버가 claim 시 `attempts`를 증가시키고 lease를 기록한다. `failed → pending`은 원인 해소 및 멱등성 확인 후 명시적 재시도만 허용한다. Phase 1은 이 계약과 Mock 한 단계 처리기만 구현하며 pgmq/cron/별도 워커는 선정하지 않는다.
 

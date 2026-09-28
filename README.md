@@ -41,6 +41,10 @@ pnpm db:test:local
 - 브라우저: CEO 자신이 소유한 데이터만 읽을 수 있고 모든 직접 DML/RPC 쓰기는 금지됩니다.
 - 서버 전용 `apply_task_transition`: owner, version, 종료 상태, 회계 불변식을 검사하고 task/event를 함께 저장합니다. ② 서비스가 도메인 검증 후 호출해야 합니다. 이 RPC 자체가 전체 전이 정책을 검사하는 것은 아닙니다.
 - 감사: task_events/decisions는 append-only, RECORDED run의 비용/응답은 불변, APPLIED/FAILED/UNKNOWN_OUTCOME run은 전체 불변입니다. service_role의 TRUNCATE 권한도 없습니다.
+- 작업 생성 후 lead/reviewer, 수락 조건, code, is_demo는 DB에서 불변입니다. 바꾸려면 취소 후 새 작업을 생성합니다.
+- test_results/artifacts도 append-only입니다. PENDING 결과의 완료나 재시험은 기존 행 수정 대신 새 증거 행을 추가합니다. 서버는 현재 검수 round와 증거 ID를 명시적으로 선택해야 합니다.
+- agent_messages는 삭제할 수 없고 queue_status, attempts, processed_at, claimed_at, lease_expires_at, available_at, run_id만 갱신할 수 있습니다.
+- WAITING_USER/UNKNOWN_OUTCOME은 Phase 1에서 CEO 취소만 허용합니다. 예산 변경·한도 재검사로 재개할 수 없으며 run 해결 정책은 Phase 2 범위입니다.
 - `agent_runs` 결과 저장 → 사용량 정산 → 응답 반영 순서의 서버 통합 테스트는 ②에서 추가합니다. ①에는 저장 무결성과 불변성만 검증합니다.
 - 앱 기본 페이지는 빌드 확인용입니다. API·인증 없는 이 단계에서 업무 DB를 읽거나 쓰지 않습니다.
 
